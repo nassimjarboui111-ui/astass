@@ -1,0 +1,6 @@
+{
+  "name": "AstaSecure Monitor",
+  "description": "Protecting Businesses. Empowering Growth. Domain and business email security monitoring platform for SMEs.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

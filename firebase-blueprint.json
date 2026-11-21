@@ -1,0 +1,387 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Private user account profile and preferences.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "format": "email", "maxLength": 254 },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "activeOrgId": { "type": "string", "maxLength": 128 },
+        "preferredLang": { "type": "string", "enum": ["en", "fr", "ar"] },
+        "totpEnabled": { "type": "boolean" },
+        "acceptedPrivacyPolicyAt": { "type": "string", "maxLength": 64 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "displayName", "preferredLang", "totpEnabled", "createdAt", "updatedAt"]
+    },
+    "UserTotpSecret": {
+      "title": "UserTotpSecret",
+      "description": "Isolated TOTP 2FA secret configuration for a user.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "secret": { "type": "string", "minLength": 16, "maxLength": 128 },
+        "enabled": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "secret", "enabled", "updatedAt"]
+    },
+    "UserMembershipRef": {
+      "title": "UserMembershipRef",
+      "description": "Index of organizations a user belongs to.",
+      "type": "object",
+      "properties": {
+        "orgId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "orgName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "role": { "type": "string", "enum": ["owner", "admin", "member"] },
+        "joinedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["orgId", "orgName", "role", "joinedAt"]
+    },
+    "PlatformAdmin": {
+      "title": "PlatformAdmin",
+      "description": "Authorized AstaSecure platform administrator.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "format": "email", "maxLength": 254 },
+        "grantedBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "grantedBy", "createdAt"]
+    },
+    "Organization": {
+      "title": "Organization",
+      "description": "Tenant organization holding domains, scans, service requests, AI agent jobs, and subscription state.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "plan": { "type": "string", "enum": ["free", "essential", "pro", "agency"] },
+        "language": { "type": "string", "enum": ["en", "fr", "ar"] },
+        "domainLimit": { "type": "integer" },
+        "scanQuotaDaily": { "type": "integer" },
+        "alertEmail": { "type": "string", "maxLength": 254 },
+        "emailAlertsEnabled": { "type": "boolean" },
+        "whatsappNumber": { "type": "string", "maxLength": 32 },
+        "whatsappAlertsEnabled": { "type": "boolean" },
+        "memberUids": { "type": "array", "description": "Bounded up to 25 member UIDs for query isolation" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "ownerId", "plan", "language", "domainLimit", "scanQuotaDaily", "memberUids", "createdAt", "updatedAt"]
+    },
+    "OrganizationMember": {
+      "title": "OrganizationMember",
+      "description": "Member role assignment inside an organization.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "orgId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "format": "email", "maxLength": 254 },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "role": { "type": "string", "enum": ["owner", "admin", "member"] },
+        "status": { "type": "string", "enum": ["active", "invited"] },
+        "invitedBy": { "type": "string", "maxLength": 128 },
+        "invitationId": { "type": "string", "maxLength": 128 },
+        "memberUids": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "orgId", "email", "displayName", "role", "status", "memberUids", "createdAt", "updatedAt"]
+    },
+    "OrganizationInvitation": {
+      "title": "OrganizationInvitation",
+      "description": "Pending team invitation for an organization.",
+      "type": "object",
+      "properties": {
+        "orgId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "orgName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "email": { "type": "string", "format": "email", "maxLength": 254 },
+        "role": { "type": "string", "enum": ["admin", "member"] },
+        "invitedBy": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "status": { "type": "string", "enum": ["pending", "accepted", "revoked"] },
+        "memberUids": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["orgId", "orgName", "email", "role", "invitedBy", "status", "memberUids", "createdAt", "updatedAt"]
+    },
+    "MonitoredDomain": {
+      "title": "MonitoredDomain",
+      "description": "Domain registered to an organization with DNS TXT ownership verification state.",
+      "type": "object",
+      "properties": {
+        "orgId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "domain": { "type": "string", "minLength": 3, "maxLength": 253, "pattern": "^[a-z0-9.-]+\\.[a-z]{2,}$" },
+        "createdBy": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "verificationToken": { "type": "string", "minLength": 16, "maxLength": 128 },
+        "tokenExpiresAt": { "type": "string", "maxLength": 64 },
+        "verificationStatus": { "type": "string", "enum": ["pending", "verified", "suspended", "technical_error"] },
+        "verifiedAt": { "type": "string", "maxLength": 64 },
+        "ownershipProof": { "type": "string", "maxLength": 256 },
+        "detectedProvider": { "type": "string", "maxLength": 80 },
+        "dkimSelectors": { "type": "array" },
+        "lastScanId": { "type": "string", "maxLength": 128 },
+        "lastScore": { "type": "number" },
+        "lastScanAt": { "type": "string", "maxLength": 64 },
+        "scheduleFrequency": { "type": "string", "enum": ["manual", "weekly", "daily"] },
+        "memberUids": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["orgId", "domain", "createdBy", "verificationToken", "tokenExpiresAt", "verificationStatus", "scheduleFrequency", "memberUids", "createdAt", "updatedAt"]
+    },
+    "DomainScan": {
+      "title": "DomainScan",
+      "description": "Server-executed and HMAC-signed DNS security scan record.",
+      "type": "object",
+      "properties": {
+        "orgId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "domainId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "domain": { "type": "string", "minLength": 3, "maxLength": 253 },
+        "triggeredBy": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "triggerType": { "type": "string", "enum": ["manual", "scheduled", "recheck"] },
+        "score": { "type": "number" },
+        "riskPoints": { "type": "number" },
+        "durationMs": { "type": "number" },
+        "detectedProvider": { "type": "string", "maxLength": 80 },
+        "checks": { "type": "array" },
+        "integritySig": { "type": "string", "minLength": 32, "maxLength": 128 },
+        "scannedAtIso": { "type": "string", "maxLength": 64 },
+        "memberUids": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["orgId", "domainId", "domain", "triggeredBy", "triggerType", "score", "riskPoints", "durationMs", "checks", "integritySig", "scannedAtIso", "memberUids", "createdAt"]
+    },
+    "ServiceRequest": {
+      "title": "ServiceRequest",
+      "description": "Customer cybersecurity service request routed to AstaSecure AI Operations Agent.",
+      "type": "object",
+      "properties": {
+        "orgId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "createdBy": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "requesterEmail": { "type": "string", "maxLength": 254 },
+        "domainId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "domain": { "type": "string", "minLength": 3, "maxLength": 253 },
+        "servicePackage": { "type": "string", "enum": ["domain_assessment", "email_security_review", "dns_monitoring", "remediation_advisory"] },
+        "language": { "type": "string", "enum": ["en", "fr", "ar"] },
+        "priority": { "type": "string", "enum": ["standard", "urgent"] },
+        "customerNotes": { "type": "string", "maxLength": 2000 },
+        "status": { "type": "string", "enum": ["queued", "running", "waiting_for_customer", "completed", "failed", "degraded_retryable"] },
+        "latestJobId": { "type": "string", "maxLength": 128 },
+        "memberUids": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["orgId", "createdBy", "requesterEmail", "domainId", "domain", "servicePackage", "language", "priority", "status", "memberUids", "createdAt", "updatedAt"]
+    },
+    "AgentJob": {
+      "title": "AgentJob",
+      "description": "Execution trace, policy checks, and outputs for AstaSecure AI Operations Agent.",
+      "type": "object",
+      "properties": {
+        "orgId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "serviceRequestId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "domainId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "domain": { "type": "string", "minLength": 3, "maxLength": 253 },
+        "servicePackage": { "type": "string", "enum": ["domain_assessment", "email_security_review", "dns_monitoring", "remediation_advisory"] },
+        "language": { "type": "string", "enum": ["en", "fr", "ar"] },
+        "status": { "type": "string", "enum": ["queued", "running", "waiting_for_customer", "completed", "failed", "degraded_retryable"] },
+        "attempts": { "type": "integer" },
+        "maxAttempts": { "type": "integer" },
+        "aiProviderAvailable": { "type": "boolean" },
+        "aiModel": { "type": "string", "maxLength": 80 },
+        "policySummary": { "type": "string", "maxLength": 500 },
+        "steps": { "type": "array" },
+        "toolCalls": { "type": "array" },
+        "memberUids": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["orgId", "serviceRequestId", "domainId", "domain", "servicePackage", "language", "status", "attempts", "maxAttempts", "aiProviderAvailable", "aiModel", "policySummary", "steps", "toolCalls", "memberUids", "createdAt", "updatedAt"]
+    },
+    "StoredReport": {
+      "title": "StoredReport",
+      "description": "Generated security report archive entry with SHA-256 fingerprint.",
+      "type": "object",
+      "properties": {
+        "orgId": { "type": "string" },
+        "domainId": { "type": "string" },
+        "domain": { "type": "string" },
+        "scanId": { "type": "string" },
+        "jobId": { "type": "string" },
+        "language": { "type": "string", "enum": ["en", "fr"] },
+        "score": { "type": "number" },
+        "sha256": { "type": "string" },
+        "integritySig": { "type": "string" },
+        "generatedBy": { "type": "string" },
+        "generatedAtIso": { "type": "string" },
+        "memberUids": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["orgId", "domainId", "domain", "scanId", "language", "score", "sha256", "integritySig", "generatedBy", "generatedAtIso", "memberUids", "createdAt"]
+    },
+    "EmailDeliveryLog": {
+      "title": "EmailDeliveryLog",
+      "description": "Immutable email delivery outcome record.",
+      "type": "object",
+      "properties": {
+        "orgId": { "type": "string" },
+        "recipient": { "type": "string" },
+        "category": { "type": "string", "enum": ["contact_ack", "service_request", "job_report", "security_alert", "test"] },
+        "subject": { "type": "string" },
+        "status": { "type": "string", "enum": ["sent", "failed", "unconfigured"] },
+        "detail": { "type": "string" },
+        "relatedJobId": { "type": "string" },
+        "memberUids": { "type": "array" },
+        "sentAtIso": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["orgId", "recipient", "category", "subject", "status", "detail", "memberUids", "sentAtIso", "createdAt"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "Organization alert or operational notification.",
+      "type": "object",
+      "properties": {
+        "orgId": { "type": "string" },
+        "title": { "type": "string" },
+        "body": { "type": "string" },
+        "category": { "type": "string", "enum": ["agent_job", "report_ready", "email_status", "security_alert"] },
+        "severity": { "type": "string", "enum": ["info", "success", "warning", "error"] },
+        "read": { "type": "boolean" },
+        "relatedJobId": { "type": "string" },
+        "relatedDomain": { "type": "string" },
+        "memberUids": { "type": "array" },
+        "createdAtIso": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["orgId", "title", "body", "category", "severity", "read", "memberUids", "createdAtIso", "createdAt"]
+    },
+    "AuditLogEntry": {
+      "title": "AuditLogEntry",
+      "description": "Append-only organization activity and security audit log entry.",
+      "type": "object",
+      "properties": {
+        "orgId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "actorId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "actorEmail": { "type": "string", "maxLength": 254 },
+        "action": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "target": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "details": { "type": "string", "maxLength": 500 },
+        "memberUids": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["orgId", "actorId", "actorEmail", "action", "target", "memberUids", "createdAt"]
+    },
+    "SubscriptionPlan": {
+      "title": "SubscriptionPlan",
+      "description": "Configurable SaaS subscription plan pricing and limits.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "enum": ["free", "essential", "pro", "agency"] },
+        "name": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "priceTnd": { "type": "number" },
+        "domainLimit": { "type": "integer" },
+        "dailyScanQuota": { "type": "integer" },
+        "scheduleAllowed": { "type": "string", "enum": ["manual", "weekly", "daily"] },
+        "pdfReportsEnabled": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "priceTnd", "domainLimit", "dailyScanQuota", "scheduleAllowed", "pdfReportsEnabled", "updatedAt"]
+    },
+    "ContactInquiry": {
+      "title": "ContactInquiry",
+      "description": "Public contact or service inquiry with consent and delivery tracking.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "email": { "type": "string", "format": "email", "maxLength": 254 },
+        "company": { "type": "string", "maxLength": 120 },
+        "serviceCategory": { "type": "string", "maxLength": 120 },
+        "domain": { "type": "string", "maxLength": 253 },
+        "consentAccepted": { "type": "boolean" },
+        "emailDeliveryStatus": { "type": "string", "enum": ["sent", "failed", "unconfigured"] },
+        "emailDeliveryDetail": { "type": "string", "maxLength": 500 },
+        "message": { "type": "string", "minLength": 10, "maxLength": 2000 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "email", "message", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Private user profiles."
+    },
+    "/users/{userId}/secrets/{secretId}": {
+      "schema": { "$ref": "#/entities/UserTotpSecret" },
+      "description": "User TOTP 2FA secret storage."
+    },
+    "/users/{userId}/memberships/{orgId}": {
+      "schema": { "$ref": "#/entities/UserMembershipRef" },
+      "description": "Organization membership index for the user."
+    },
+    "/admins/{userId}": {
+      "schema": { "$ref": "#/entities/PlatformAdmin" },
+      "description": "Platform administrators registry."
+    },
+    "/organizations/{orgId}": {
+      "schema": { "$ref": "#/entities/Organization" },
+      "description": "SME customer organizations."
+    },
+    "/organizations/{orgId}/members/{memberId}": {
+      "schema": { "$ref": "#/entities/OrganizationMember" },
+      "description": "Organization members and RBAC roles."
+    },
+    "/invitations/{inviteId}": {
+      "schema": { "$ref": "#/entities/OrganizationInvitation" },
+      "description": "Pending organization team invitations."
+    },
+    "/organizations/{orgId}/domains/{domainId}": {
+      "schema": { "$ref": "#/entities/MonitoredDomain" },
+      "description": "Verified and pending monitored domains."
+    },
+    "/organizations/{orgId}/scans/{scanId}": {
+      "schema": { "$ref": "#/entities/DomainScan" },
+      "description": "Server-signed DNS security scans."
+    },
+    "/organizations/{orgId}/serviceRequests/{requestId}": {
+      "schema": { "$ref": "#/entities/ServiceRequest" },
+      "description": "Customer security service requests."
+    },
+    "/organizations/{orgId}/agentJobs/{jobId}": {
+      "schema": { "$ref": "#/entities/AgentJob" },
+      "description": "AstaSecure AI Operations Agent job logs and outputs."
+    },
+    "/organizations/{orgId}/reports/{reportId}": {
+      "schema": { "$ref": "#/entities/StoredReport" },
+      "description": "Generated PDF report archive metadata."
+    },
+    "/organizations/{orgId}/emailLogs/{emailLogId}": {
+      "schema": { "$ref": "#/entities/EmailDeliveryLog" },
+      "description": "Email delivery outcome records."
+    },
+    "/organizations/{orgId}/notifications/{notifId}": {
+      "schema": { "$ref": "#/entities/Notification" },
+      "description": "In-app security and agent operational notifications."
+    },
+    "/organizations/{orgId}/auditLogs/{logId}": {
+      "schema": { "$ref": "#/entities/AuditLogEntry" },
+      "description": "Immutable organization audit trail."
+    },
+    "/plans/{planId}": {
+      "schema": { "$ref": "#/entities/SubscriptionPlan" },
+      "description": "Configurable subscription plans."
+    },
+    "/contactInquiries/{inquiryId}": {
+      "schema": { "$ref": "#/entities/ContactInquiry" },
+      "description": "Public contact inquiries."
+    }
+  }
+}

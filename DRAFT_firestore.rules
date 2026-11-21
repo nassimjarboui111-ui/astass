@@ -1,0 +1,673 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Pillar 4 Global Safety Net: Default-Deny Catch-All
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Startup connection check document
+    match /test/connection {
+      allow get: if true;
+    }
+
+    // --- Pillar 3: Hardened Global Helpers ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isBootstrappedAdmin() {
+      return isVerified() && request.auth.token.email == 'nassimjarboui111@gmail.com';
+    }
+
+    function isPlatformAdmin() {
+      return isVerified() && (
+        isBootstrappedAdmin() ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // Master Gate for Organization Membership & Role
+    function isOrgMember(orgId) {
+      return isSignedIn() && exists(/databases/$(database)/documents/organizations/$(orgId)/members/$(request.auth.uid));
+    }
+
+    function getOrgRole(orgId) {
+      return get(/databases/$(database)/documents/organizations/$(orgId)/members/$(request.auth.uid)).data.role;
+    }
+
+    function isOrgAdminOrOwner(orgId) {
+      return isVerified() && isOrgMember(orgId) && (getOrgRole(orgId) == 'owner' || getOrgRole(orgId) == 'admin');
+    }
+
+    function isOrgOwner(orgId) {
+      return isVerified() && isOrgMember(orgId) && getOrgRole(orgId) == 'owner';
+    }
+
+    function isBoundedUidList(listVal) {
+      return listVal is list && listVal.size() >= 1 && listVal.size() <= 25 && listVal[0] is string;
+    }
+
+    // --- Validation Blueprints ---
+
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'preferredLang', 'totpEnabled', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'displayName', 'activeOrgId', 'preferredLang', 'totpEnabled', 'acceptedPrivacyPolicyAt', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 254
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120
+        && data.preferredLang in ['en', 'fr', 'ar']
+        && data.totpEnabled is bool
+        && (!('activeOrgId' in data) || (data.activeOrgId is string && data.activeOrgId.size() <= 128))
+        && (!('acceptedPrivacyPolicyAt' in data) || (data.acceptedPrivacyPolicyAt is string && data.acceptedPrivacyPolicyAt.size() <= 64))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidTotpSecret(data) {
+      return data.keys().hasAll(['uid', 'secret', 'enabled', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'secret', 'enabled', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.secret is string && data.secret.size() >= 16 && data.secret.size() <= 128
+        && data.enabled is bool
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserMembershipRef(data) {
+      return data.keys().hasAll(['orgId', 'orgName', 'role', 'joinedAt'])
+        && data.keys().hasOnly(['orgId', 'orgName', 'role', 'joinedAt'])
+        && isValidId(data.orgId)
+        && data.orgName is string && data.orgName.size() >= 1 && data.orgName.size() <= 120
+        && data.role in ['owner', 'admin', 'member']
+        && data.joinedAt is timestamp;
+    }
+
+    function isValidPlatformAdmin(data) {
+      return data.keys().hasAll(['uid', 'email', 'grantedBy', 'createdAt'])
+        && data.keys().hasOnly(['uid', 'email', 'grantedBy', 'createdAt'])
+        && isValidId(data.uid)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 254
+        && data.grantedBy is string && data.grantedBy.size() >= 1 && data.grantedBy.size() <= 128
+        && data.createdAt is timestamp;
+    }
+
+    function isValidOrganization(data) {
+      return data.keys().hasAll(['id', 'name', 'ownerId', 'plan', 'language', 'domainLimit', 'scanQuotaDaily', 'memberUids', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'name', 'ownerId', 'plan', 'language', 'domainLimit', 'scanQuotaDaily', 'alertEmail', 'emailAlertsEnabled', 'whatsappNumber', 'whatsappAlertsEnabled', 'memberUids', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.name is string && data.name.size() >= 2 && data.name.size() <= 120
+        && isValidId(data.ownerId)
+        && data.plan in ['free', 'essential', 'pro', 'agency']
+        && data.language in ['en', 'fr', 'ar']
+        && data.domainLimit is int && data.domainLimit >= 1 && data.domainLimit <= 500
+        && data.scanQuotaDaily is int && data.scanQuotaDaily >= 1 && data.scanQuotaDaily <= 1000
+        && isBoundedUidList(data.memberUids)
+        && (!('alertEmail' in data) || (data.alertEmail is string && data.alertEmail.size() <= 254))
+        && (!('emailAlertsEnabled' in data) || data.emailAlertsEnabled is bool)
+        && (!('whatsappNumber' in data) || (data.whatsappNumber is string && data.whatsappNumber.size() <= 32))
+        && (!('whatsappAlertsEnabled' in data) || data.whatsappAlertsEnabled is bool)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidOrgMember(data) {
+      return data.keys().hasAll(['userId', 'orgId', 'email', 'displayName', 'role', 'status', 'memberUids', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['userId', 'orgId', 'email', 'displayName', 'role', 'status', 'invitedBy', 'invitationId', 'memberUids', 'createdAt', 'updatedAt'])
+        && isValidId(data.userId)
+        && isValidId(data.orgId)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 254
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120
+        && data.role in ['owner', 'admin', 'member']
+        && data.status in ['active', 'invited']
+        && isBoundedUidList(data.memberUids)
+        && (!('invitedBy' in data) || (data.invitedBy is string && data.invitedBy.size() <= 128))
+        && (!('invitationId' in data) || (data.invitationId is string && isValidId(data.invitationId)))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidInvitation(data) {
+      return data.keys().hasAll(['orgId', 'orgName', 'email', 'role', 'invitedBy', 'status', 'memberUids', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['orgId', 'orgName', 'email', 'role', 'invitedBy', 'status', 'memberUids', 'createdAt', 'updatedAt'])
+        && isValidId(data.orgId)
+        && data.orgName is string && data.orgName.size() >= 1 && data.orgName.size() <= 120
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 254
+        && data.role in ['admin', 'member']
+        && isValidId(data.invitedBy)
+        && data.status in ['pending', 'accepted', 'revoked']
+        && isBoundedUidList(data.memberUids)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidMonitoredDomain(data) {
+      return data.keys().hasAll(['orgId', 'domain', 'createdBy', 'verificationToken', 'tokenExpiresAt', 'verificationStatus', 'scheduleFrequency', 'memberUids', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['orgId', 'domain', 'createdBy', 'verificationToken', 'tokenExpiresAt', 'verificationStatus', 'verifiedAt', 'ownershipProof', 'detectedProvider', 'dkimSelectors', 'lastScanId', 'lastScore', 'lastScanAt', 'scheduleFrequency', 'memberUids', 'createdAt', 'updatedAt'])
+        && isValidId(data.orgId)
+        && data.domain is string && data.domain.size() >= 3 && data.domain.size() <= 253 && data.domain.matches('^[a-z0-9.-]+\\.[a-z]{2,}$')
+        && isValidId(data.createdBy)
+        && data.verificationToken is string && data.verificationToken.size() >= 16 && data.verificationToken.size() <= 128
+        && data.tokenExpiresAt is string && data.tokenExpiresAt.size() >= 10 && data.tokenExpiresAt.size() <= 64
+        && data.verificationStatus in ['pending', 'verified', 'suspended', 'technical_error']
+        && data.scheduleFrequency in ['manual', 'weekly', 'daily']
+        && isBoundedUidList(data.memberUids)
+        && (!('verifiedAt' in data) || (data.verifiedAt is string && data.verifiedAt.size() <= 64))
+        && (!('ownershipProof' in data) || (data.ownershipProof is string && data.ownershipProof.size() <= 256))
+        && (!('detectedProvider' in data) || (data.detectedProvider is string && data.detectedProvider.size() <= 80))
+        && (!('dkimSelectors' in data) || (data.dkimSelectors is list && data.dkimSelectors.size() <= 15))
+        && (!('lastScanId' in data) || (data.lastScanId is string && data.lastScanId.size() <= 128))
+        && (!('lastScore' in data) || (data.lastScore is number && data.lastScore >= 0 && data.lastScore <= 100))
+        && (!('lastScanAt' in data) || (data.lastScanAt is string && data.lastScanAt.size() <= 64))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidDomainScan(data) {
+      return data.keys().hasAll(['orgId', 'domainId', 'domain', 'triggeredBy', 'triggerType', 'score', 'riskPoints', 'durationMs', 'checks', 'integritySig', 'scannedAtIso', 'memberUids', 'createdAt'])
+        && data.keys().hasOnly(['orgId', 'domainId', 'domain', 'triggeredBy', 'triggerType', 'score', 'riskPoints', 'durationMs', 'detectedProvider', 'checks', 'integritySig', 'scannedAtIso', 'memberUids', 'createdAt'])
+        && isValidId(data.orgId)
+        && isValidId(data.domainId)
+        && data.domain is string && data.domain.size() >= 3 && data.domain.size() <= 253
+        && isValidId(data.triggeredBy)
+        && data.triggerType in ['manual', 'scheduled', 'recheck']
+        && data.score is number && data.score >= 0 && data.score <= 100
+        && data.riskPoints is number && data.riskPoints >= 0 && data.riskPoints <= 100
+        && data.durationMs is number && data.durationMs >= 0 && data.durationMs <= 120000
+        && (!('detectedProvider' in data) || (data.detectedProvider is string && data.detectedProvider.size() <= 80))
+        && data.checks is list && data.checks.size() >= 1 && data.checks.size() <= 12 && data.checks[0] is map
+        && data.integritySig is string && data.integritySig.size() >= 32 && data.integritySig.size() <= 128
+        && data.scannedAtIso is string && data.scannedAtIso.size() >= 10 && data.scannedAtIso.size() <= 64
+        && isBoundedUidList(data.memberUids)
+        && data.createdAt is timestamp;
+    }
+
+    function isValidServiceRequest(data) {
+      return data.keys().hasAll(['orgId', 'createdBy', 'requesterEmail', 'domainId', 'domain', 'servicePackage', 'language', 'priority', 'customerNotes', 'status', 'memberUids', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['orgId', 'createdBy', 'requesterEmail', 'domainId', 'domain', 'servicePackage', 'language', 'priority', 'customerNotes', 'status', 'latestJobId', 'memberUids', 'createdAt', 'updatedAt'])
+        && isValidId(data.orgId)
+        && isValidId(data.createdBy)
+        && data.requesterEmail is string && data.requesterEmail.size() <= 254
+        && isValidId(data.domainId)
+        && data.domain is string && data.domain.size() >= 3 && data.domain.size() <= 253
+        && data.servicePackage in ['domain_assessment', 'email_security_review', 'dns_monitoring', 'remediation_advisory']
+        && data.language in ['en', 'fr', 'ar']
+        && data.priority in ['standard', 'urgent']
+        && data.customerNotes is string && data.customerNotes.size() <= 2000
+        && data.status in ['queued', 'running', 'waiting_for_customer', 'completed', 'failed', 'degraded_retryable']
+        && (!('latestJobId' in data) || (data.latestJobId is string && data.latestJobId.size() <= 128))
+        && isBoundedUidList(data.memberUids)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAgentJob(data) {
+      return data.keys().hasAll(['orgId', 'serviceRequestId', 'domainId', 'domain', 'servicePackage', 'language', 'status', 'attempts', 'maxAttempts', 'aiProviderAvailable', 'aiModel', 'policySummary', 'steps', 'toolCalls', 'memberUids', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['orgId', 'serviceRequestId', 'domainId', 'domain', 'servicePackage', 'language', 'status', 'attempts', 'maxAttempts', 'aiProviderAvailable', 'aiModel', 'aiDegradedReason', 'aiClassification', 'executiveNarrative', 'prioritizedActions', 'policySummary', 'scanId', 'score', 'reportSha256', 'emailDeliveryStatus', 'emailDeliveryDetail', 'steps', 'toolCalls', 'errorMessage', 'memberUids', 'createdAt', 'updatedAt'])
+        && isValidId(data.orgId)
+        && isValidId(data.serviceRequestId)
+        && isValidId(data.domainId)
+        && data.domain is string && data.domain.size() >= 3 && data.domain.size() <= 253
+        && data.servicePackage in ['domain_assessment', 'email_security_review', 'dns_monitoring', 'remediation_advisory']
+        && data.language in ['en', 'fr', 'ar']
+        && data.status in ['queued', 'running', 'waiting_for_customer', 'completed', 'failed', 'degraded_retryable']
+        && data.attempts is int && data.attempts >= 0 && data.attempts <= 10
+        && data.maxAttempts is int && data.maxAttempts >= 1 && data.maxAttempts <= 10
+        && data.aiProviderAvailable is bool
+        && data.aiModel is string && data.aiModel.size() >= 1 && data.aiModel.size() <= 80
+        && data.policySummary is string && data.policySummary.size() <= 500
+        && data.steps is list && data.steps.size() <= 20
+        && data.toolCalls is list && data.toolCalls.size() <= 30
+        && (!('aiDegradedReason' in data) || (data.aiDegradedReason is string && data.aiDegradedReason.size() <= 500))
+        && (!('aiClassification' in data) || (data.aiClassification is string && data.aiClassification.size() <= 200))
+        && (!('executiveNarrative' in data) || (data.executiveNarrative is string && data.executiveNarrative.size() <= 3000))
+        && (!('prioritizedActions' in data) || (data.prioritizedActions is list && data.prioritizedActions.size() <= 15))
+        && (!('scanId' in data) || (data.scanId is string && data.scanId.size() <= 128))
+        && (!('score' in data) || (data.score is number && data.score >= 0 && data.score <= 100))
+        && (!('reportSha256' in data) || (data.reportSha256 is string && data.reportSha256.size() <= 128))
+        && (!('emailDeliveryStatus' in data) || data.emailDeliveryStatus in ['sent', 'failed', 'unconfigured', 'skipped'])
+        && (!('emailDeliveryDetail' in data) || (data.emailDeliveryDetail is string && data.emailDeliveryDetail.size() <= 500))
+        && (!('errorMessage' in data) || (data.errorMessage is string && data.errorMessage.size() <= 1000))
+        && isBoundedUidList(data.memberUids)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidStoredReport(data) {
+      return data.keys().hasAll(['orgId', 'domainId', 'domain', 'scanId', 'language', 'score', 'sha256', 'integritySig', 'generatedBy', 'generatedAtIso', 'memberUids', 'createdAt'])
+        && data.keys().hasOnly(['orgId', 'domainId', 'domain', 'scanId', 'jobId', 'language', 'score', 'sha256', 'integritySig', 'generatedBy', 'generatedAtIso', 'memberUids', 'createdAt'])
+        && isValidId(data.orgId)
+        && isValidId(data.domainId)
+        && data.domain is string && data.domain.size() >= 3 && data.domain.size() <= 253
+        && isValidId(data.scanId)
+        && (!('jobId' in data) || (data.jobId is string && data.jobId.size() <= 128))
+        && data.language in ['en', 'fr']
+        && data.score is number && data.score >= 0 && data.score <= 100
+        && data.sha256 is string && data.sha256.size() >= 32 && data.sha256.size() <= 128
+        && data.integritySig is string && data.integritySig.size() >= 32 && data.integritySig.size() <= 128
+        && isValidId(data.generatedBy)
+        && data.generatedAtIso is string && data.generatedAtIso.size() <= 64
+        && isBoundedUidList(data.memberUids)
+        && data.createdAt is timestamp;
+    }
+
+    function isValidEmailDeliveryLog(data) {
+      return data.keys().hasAll(['orgId', 'recipient', 'category', 'subject', 'status', 'detail', 'memberUids', 'sentAtIso', 'createdAt'])
+        && data.keys().hasOnly(['orgId', 'recipient', 'category', 'subject', 'status', 'detail', 'relatedJobId', 'memberUids', 'sentAtIso', 'createdAt'])
+        && isValidId(data.orgId)
+        && data.recipient is string && data.recipient.size() >= 3 && data.recipient.size() <= 254
+        && data.category in ['contact_ack', 'service_request', 'job_report', 'security_alert', 'test']
+        && data.subject is string && data.subject.size() >= 1 && data.subject.size() <= 250
+        && data.status in ['sent', 'failed', 'unconfigured']
+        && data.detail is string && data.detail.size() <= 500
+        && (!('relatedJobId' in data) || (data.relatedJobId is string && data.relatedJobId.size() <= 128))
+        && isBoundedUidList(data.memberUids)
+        && data.sentAtIso is string && data.sentAtIso.size() <= 64
+        && data.createdAt is timestamp;
+    }
+
+    function isValidNotification(data) {
+      return data.keys().hasAll(['orgId', 'title', 'body', 'category', 'severity', 'read', 'memberUids', 'createdAtIso', 'createdAt'])
+        && data.keys().hasOnly(['orgId', 'title', 'body', 'category', 'severity', 'read', 'relatedJobId', 'relatedDomain', 'memberUids', 'createdAtIso', 'createdAt'])
+        && isValidId(data.orgId)
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 160
+        && data.body is string && data.body.size() >= 1 && data.body.size() <= 1000
+        && data.category in ['agent_job', 'report_ready', 'email_status', 'security_alert']
+        && data.severity in ['info', 'success', 'warning', 'error']
+        && data.read is bool
+        && (!('relatedJobId' in data) || (data.relatedJobId is string && data.relatedJobId.size() <= 128))
+        && (!('relatedDomain' in data) || (data.relatedDomain is string && data.relatedDomain.size() <= 253))
+        && isBoundedUidList(data.memberUids)
+        && data.createdAtIso is string && data.createdAtIso.size() <= 64
+        && data.createdAt is timestamp;
+    }
+
+    function isValidAuditLog(data) {
+      return data.keys().hasAll(['orgId', 'actorId', 'actorEmail', 'action', 'target', 'memberUids', 'createdAt'])
+        && data.keys().hasOnly(['orgId', 'actorId', 'actorEmail', 'action', 'target', 'details', 'memberUids', 'createdAt'])
+        && isValidId(data.orgId)
+        && isValidId(data.actorId)
+        && data.actorEmail is string && data.actorEmail.size() >= 3 && data.actorEmail.size() <= 254
+        && data.action is string && data.action.size() >= 1 && data.action.size() <= 120
+        && data.target is string && data.target.size() >= 1 && data.target.size() <= 256
+        && (!('details' in data) || (data.details is string && data.details.size() <= 500))
+        && isBoundedUidList(data.memberUids)
+        && data.createdAt is timestamp;
+    }
+
+    function isValidPlan(data) {
+      return data.keys().hasAll(['id', 'name', 'priceTnd', 'domainLimit', 'dailyScanQuota', 'scheduleAllowed', 'pdfReportsEnabled', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'name', 'priceTnd', 'domainLimit', 'dailyScanQuota', 'scheduleAllowed', 'pdfReportsEnabled', 'updatedAt'])
+        && data.id in ['free', 'essential', 'pro', 'agency']
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 64
+        && data.priceTnd is number && data.priceTnd >= 0 && data.priceTnd <= 10000
+        && data.domainLimit is int && data.domainLimit >= 1 && data.domainLimit <= 500
+        && data.dailyScanQuota is int && data.dailyScanQuota >= 1 && data.dailyScanQuota <= 1000
+        && data.scheduleAllowed in ['manual', 'weekly', 'daily']
+        && data.pdfReportsEnabled is bool
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidContactInquiry(data) {
+      return data.keys().hasAll(['name', 'email', 'message', 'createdAt'])
+        && data.keys().hasOnly(['name', 'email', 'company', 'serviceCategory', 'domain', 'consentAccepted', 'emailDeliveryStatus', 'emailDeliveryDetail', 'message', 'createdAt'])
+        && data.name is string && data.name.size() >= 2 && data.name.size() <= 120
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 254
+        && (!('company' in data) || (data.company is string && data.company.size() <= 120))
+        && (!('serviceCategory' in data) || (data.serviceCategory is string && data.serviceCategory.size() <= 120))
+        && (!('domain' in data) || (data.domain is string && data.domain.size() <= 253))
+        && (!('consentAccepted' in data) || data.consentAccepted is bool)
+        && (!('emailDeliveryStatus' in data) || data.emailDeliveryStatus in ['sent', 'failed', 'unconfigured'])
+        && (!('emailDeliveryDetail' in data) || (data.emailDeliveryDetail is string && data.emailDeliveryDetail.size() <= 500))
+        && data.message is string && data.message.size() >= 10 && data.message.size() <= 2000
+        && data.createdAt is timestamp;
+    }
+
+    // --- Collection Rules ---
+
+    // 1. Users (PII isolated to owner or platform admin)
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isPlatformAdmin());
+      allow list: if isBootstrappedAdmin();
+      allow create: if isValidId(userId) && isVerified() && isOwner(userId)
+        && isValidUserProfile(incoming())
+        && incoming().uid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(userId) && isVerified()
+        && isValidUserProfile(incoming())
+        && (isOwner(userId) || isPlatformAdmin())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'activeOrgId', 'preferredLang', 'totpEnabled', 'acceptedPrivacyPolicyAt', 'updatedAt']);
+      allow delete: if isValidId(userId) && isVerified() && (isOwner(userId) || isPlatformAdmin());
+
+      match /secrets/{secretId} {
+        allow get: if isValidId(userId) && isValidId(secretId) && isOwner(userId);
+        allow list: if false;
+        allow create: if isValidId(userId) && isValidId(secretId) && isVerified() && isOwner(userId)
+          && isValidTotpSecret(incoming())
+          && incoming().uid == request.auth.uid
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(userId) && isValidId(secretId) && isVerified() && isOwner(userId)
+          && isValidTotpSecret(incoming())
+          && incoming().uid == existing().uid
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['secret', 'enabled', 'updatedAt']);
+        allow delete: if isValidId(userId) && isValidId(secretId) && isVerified() && isOwner(userId);
+      }
+
+      match /memberships/{orgId} {
+        allow get: if isValidId(userId) && isValidId(orgId) && (isOwner(userId) || isPlatformAdmin());
+        allow list: if isValidId(userId) && isOwner(userId);
+        allow create: if isValidId(userId) && isValidId(orgId) && isVerified()
+          && isValidUserMembershipRef(incoming())
+          && incoming().orgId == orgId
+          && incoming().joinedAt == request.time
+          && (
+            (isOwner(userId) && incoming().role == 'owner' && existsAfter(/databases/$(database)/documents/organizations/$(orgId))) ||
+            (isOwner(userId) && existsAfter(/databases/$(database)/documents/organizations/$(orgId)/members/$(userId))) ||
+            isOrgAdminOrOwner(orgId)
+          );
+        allow update: if isValidId(userId) && isValidId(orgId) && isVerified()
+          && isValidUserMembershipRef(incoming())
+          && (isOrgOwner(orgId) || isPlatformAdmin())
+          && incoming().orgId == existing().orgId
+          && incoming().joinedAt == existing().joinedAt
+          && incoming().diff(existing()).affectedKeys().hasOnly(['orgName', 'role']);
+        allow delete: if isValidId(userId) && isValidId(orgId) && isVerified()
+          && (isOwner(userId) || isOrgOwner(orgId) || isPlatformAdmin());
+      }
+    }
+
+    // 2. Platform Admins (Strictly server/existing-admin managed)
+    match /admins/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isPlatformAdmin());
+      allow list: if isBootstrappedAdmin();
+      allow create, update, delete: if isValidId(userId) && isPlatformAdmin()
+        && (request.method == 'delete' || (isValidPlatformAdmin(incoming()) && incoming().uid == userId && incoming().createdAt == request.time));
+    }
+
+    // 3. Plans (Public read, Admin write)
+    match /plans/{planId} {
+      allow get: if isValidId(planId);
+      allow list: if true;
+      allow create, update: if isValidId(planId) && isPlatformAdmin()
+        && isValidPlan(incoming())
+        && incoming().id == planId
+        && incoming().updatedAt == request.time;
+      allow delete: if isValidId(planId) && isPlatformAdmin();
+    }
+
+    // 4. Contact Inquiries (Public create, Admin read/delete)
+    match /contactInquiries/{inquiryId} {
+      allow get, list: if isBootstrappedAdmin();
+      allow create: if isValidId(inquiryId) && isValidContactInquiry(incoming())
+        && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isValidId(inquiryId) && isPlatformAdmin();
+    }
+
+    // 4b. Organization Team Invitations
+    match /invitations/{inviteId} {
+      allow get: if isValidId(inviteId) && isVerified()
+        && (existing().email == request.auth.token.email || request.auth.uid in existing().memberUids || isPlatformAdmin());
+      allow list: if isVerified()
+        && (existing().email == request.auth.token.email || request.auth.uid in existing().memberUids || isBootstrappedAdmin());
+      allow create: if isValidId(inviteId) && isVerified()
+        && isValidInvitation(incoming())
+        && incoming().invitedBy == request.auth.uid
+        && incoming().status == 'pending'
+        && isOrgAdminOrOwner(incoming().orgId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(inviteId) && isVerified()
+        && isValidInvitation(incoming())
+        && incoming().orgId == existing().orgId
+        && incoming().email == existing().email
+        && incoming().role == existing().role
+        && incoming().invitedBy == existing().invitedBy
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+        && (
+          (existing().email == request.auth.token.email && existing().status == 'pending' && incoming().status == 'accepted') ||
+          (isOrgAdminOrOwner(existing().orgId) && incoming().status == 'revoked')
+        );
+      allow delete: if isValidId(inviteId) && isVerified()
+        && (isOrgAdminOrOwner(existing().orgId) || isPlatformAdmin());
+    }
+
+    // 5. Organizations & Tenant Subcollections
+    match /organizations/{orgId} {
+      allow get: if isValidId(orgId) && (isOrgMember(orgId) || isPlatformAdmin());
+      allow list: if isSignedIn() && (request.auth.uid in existing().memberUids || isBootstrappedAdmin());
+      allow create: if isValidId(orgId) && isVerified()
+        && isValidOrganization(incoming())
+        && incoming().id == orgId
+        && incoming().ownerId == request.auth.uid
+        && incoming().plan == 'free'
+        && incoming().domainLimit == 1
+        && incoming().scanQuotaDaily == 5
+        && incoming().memberUids.size() == 1
+        && incoming().memberUids[0] == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && existsAfter(/databases/$(database)/documents/organizations/$(orgId)/members/$(request.auth.uid));
+      allow update: if isValidId(orgId) && isVerified()
+        && isValidOrganization(incoming())
+        && incoming().id == existing().id
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isPlatformAdmin() ||
+          (isOrgOwner(orgId) && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'language', 'alertEmail', 'emailAlertsEnabled', 'whatsappNumber', 'whatsappAlertsEnabled', 'memberUids', 'updatedAt'])) ||
+          (isOrgAdminOrOwner(orgId) && incoming().diff(existing()).affectedKeys().hasOnly(['alertEmail', 'emailAlertsEnabled', 'whatsappNumber', 'whatsappAlertsEnabled', 'memberUids', 'updatedAt'])) ||
+          (existsAfter(/databases/$(database)/documents/organizations/$(orgId)/members/$(request.auth.uid))
+            && incoming().diff(existing()).affectedKeys().hasOnly(['memberUids', 'updatedAt'])
+            && incoming().memberUids.hasAll(existing().memberUids)
+            && incoming().memberUids.size() == existing().memberUids.size() + 1
+            && request.auth.uid in incoming().memberUids)
+        );
+      allow delete: if isValidId(orgId) && isVerified() && (isOrgOwner(orgId) || isPlatformAdmin());
+
+      match /members/{memberId} {
+        allow get: if isValidId(orgId) && isValidId(memberId) && (isOrgMember(orgId) || isPlatformAdmin());
+        allow list: if isValidId(orgId) && isSignedIn() && (request.auth.uid in existing().memberUids || isBootstrappedAdmin());
+        allow create: if isValidId(orgId) && isValidId(memberId) && isVerified()
+          && isValidOrgMember(incoming())
+          && incoming().orgId == orgId
+          && incoming().userId == memberId
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && (
+            (memberId == request.auth.uid && incoming().role == 'owner' && existsAfter(/databases/$(database)/documents/organizations/$(orgId))) ||
+            (memberId == request.auth.uid && 'invitationId' in incoming()
+              && exists(/databases/$(database)/documents/invitations/$(incoming().invitationId))
+              && get(/databases/$(database)/documents/invitations/$(incoming().invitationId)).data.orgId == orgId
+              && get(/databases/$(database)/documents/invitations/$(incoming().invitationId)).data.email == request.auth.token.email
+              && get(/databases/$(database)/documents/invitations/$(incoming().invitationId)).data.status == 'pending'
+              && incoming().role == get(/databases/$(database)/documents/invitations/$(incoming().invitationId)).data.role) ||
+            isOrgAdminOrOwner(orgId) ||
+            isPlatformAdmin()
+          );
+        allow update: if isValidId(orgId) && isValidId(memberId) && isVerified()
+          && isValidOrgMember(incoming())
+          && incoming().orgId == existing().orgId
+          && incoming().userId == existing().userId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (isOrgOwner(orgId) || isPlatformAdmin())
+          && incoming().diff(existing()).affectedKeys().hasOnly(['role', 'status', 'displayName', 'memberUids', 'updatedAt']);
+        allow delete: if isValidId(orgId) && isValidId(memberId) && isVerified()
+          && (isOrgOwner(orgId) || isPlatformAdmin() || memberId == request.auth.uid);
+      }
+
+      match /domains/{domainId} {
+        allow get: if isValidId(orgId) && isValidId(domainId) && (isOrgMember(orgId) || isPlatformAdmin());
+        allow list: if isValidId(orgId) && isSignedIn() && (request.auth.uid in existing().memberUids || isBootstrappedAdmin());
+        allow create: if isValidId(orgId) && isValidId(domainId) && isVerified()
+          && isValidMonitoredDomain(incoming())
+          && incoming().orgId == orgId
+          && incoming().createdBy == request.auth.uid
+          && incoming().verificationStatus == 'pending'
+          && isOrgAdminOrOwner(orgId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(orgId) && isValidId(domainId) && isVerified()
+          && isValidMonitoredDomain(incoming())
+          && (isOrgAdminOrOwner(orgId) || isPlatformAdmin())
+          && incoming().orgId == existing().orgId
+          && incoming().domain == existing().domain
+          && incoming().createdBy == existing().createdBy
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'verificationToken', 'tokenExpiresAt', 'verificationStatus', 'verifiedAt',
+            'ownershipProof', 'detectedProvider', 'dkimSelectors', 'lastScanId',
+            'lastScore', 'lastScanAt', 'scheduleFrequency', 'memberUids', 'updatedAt'
+          ]);
+        allow delete: if isValidId(orgId) && isValidId(domainId) && isVerified()
+          && (isOrgAdminOrOwner(orgId) || isPlatformAdmin());
+      }
+
+      match /scans/{scanId} {
+        allow get: if isValidId(orgId) && isValidId(scanId) && (isOrgMember(orgId) || isPlatformAdmin());
+        allow list: if isValidId(orgId) && isSignedIn() && (request.auth.uid in existing().memberUids || isBootstrappedAdmin());
+        allow create: if isValidId(orgId) && isValidId(scanId) && isVerified()
+          && isValidDomainScan(incoming())
+          && incoming().orgId == orgId
+          && incoming().triggeredBy == request.auth.uid
+          && isOrgAdminOrOwner(orgId)
+          && exists(/databases/$(database)/documents/organizations/$(orgId)/domains/$(incoming().domainId))
+          && incoming().createdAt == request.time;
+        allow update: if false;
+        allow delete: if isValidId(orgId) && isValidId(scanId) && isVerified()
+          && (isOrgOwner(orgId) || isPlatformAdmin());
+      }
+
+      match /serviceRequests/{requestId} {
+        allow get: if isValidId(orgId) && isValidId(requestId) && (isOrgMember(orgId) || isPlatformAdmin());
+        allow list: if isValidId(orgId) && isSignedIn() && (request.auth.uid in existing().memberUids || isBootstrappedAdmin());
+        allow create: if isValidId(orgId) && isValidId(requestId) && isVerified()
+          && isValidServiceRequest(incoming())
+          && incoming().orgId == orgId
+          && incoming().createdBy == request.auth.uid
+          && isOrgAdminOrOwner(orgId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(orgId) && isValidId(requestId) && isVerified()
+          && isValidServiceRequest(incoming())
+          && (isOrgAdminOrOwner(orgId) || isPlatformAdmin())
+          && incoming().orgId == existing().orgId
+          && incoming().createdBy == existing().createdBy
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'latestJobId', 'memberUids', 'updatedAt']);
+        allow delete: if isValidId(orgId) && isValidId(requestId) && isVerified()
+          && (isOrgOwner(orgId) || isPlatformAdmin());
+      }
+
+      match /agentJobs/{jobId} {
+        allow get: if isValidId(orgId) && isValidId(jobId) && (isOrgMember(orgId) || isPlatformAdmin());
+        allow list: if isValidId(orgId) && isSignedIn() && (request.auth.uid in existing().memberUids || isBootstrappedAdmin());
+        allow create: if isValidId(orgId) && isValidId(jobId) && isVerified()
+          && isValidAgentJob(incoming())
+          && incoming().orgId == orgId
+          && isOrgAdminOrOwner(orgId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(orgId) && isValidId(jobId) && isVerified()
+          && isValidAgentJob(incoming())
+          && (isOrgAdminOrOwner(orgId) || isPlatformAdmin())
+          && incoming().orgId == existing().orgId
+          && incoming().serviceRequestId == existing().serviceRequestId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time;
+        allow delete: if isValidId(orgId) && isValidId(jobId) && isVerified()
+          && (isOrgOwner(orgId) || isPlatformAdmin());
+      }
+
+      match /reports/{reportId} {
+        allow get: if isValidId(orgId) && isValidId(reportId) && (isOrgMember(orgId) || isPlatformAdmin());
+        allow list: if isValidId(orgId) && isSignedIn() && (request.auth.uid in existing().memberUids || isBootstrappedAdmin());
+        allow create: if isValidId(orgId) && isValidId(reportId) && isVerified()
+          && isValidStoredReport(incoming())
+          && incoming().orgId == orgId
+          && incoming().generatedBy == request.auth.uid
+          && isOrgAdminOrOwner(orgId)
+          && incoming().createdAt == request.time;
+        allow update: if false;
+        allow delete: if isValidId(orgId) && isValidId(reportId) && isVerified()
+          && (isOrgOwner(orgId) || isPlatformAdmin());
+      }
+
+      match /emailLogs/{emailLogId} {
+        allow get: if isValidId(orgId) && isValidId(emailLogId) && (isOrgMember(orgId) || isPlatformAdmin());
+        allow list: if isValidId(orgId) && isSignedIn() && (request.auth.uid in existing().memberUids || isBootstrappedAdmin());
+        allow create: if isValidId(orgId) && isValidId(emailLogId) && isVerified()
+          && isValidEmailDeliveryLog(incoming())
+          && incoming().orgId == orgId
+          && isOrgAdminOrOwner(orgId)
+          && incoming().createdAt == request.time;
+        allow update: if false;
+        allow delete: if isValidId(orgId) && isValidId(emailLogId) && isVerified()
+          && (isOrgOwner(orgId) || isPlatformAdmin());
+      }
+
+      match /notifications/{notifId} {
+        allow get: if isValidId(orgId) && isValidId(notifId) && (isOrgMember(orgId) || isPlatformAdmin());
+        allow list: if isValidId(orgId) && isSignedIn() && (request.auth.uid in existing().memberUids || isBootstrappedAdmin());
+        allow create: if isValidId(orgId) && isValidId(notifId) && isVerified()
+          && isValidNotification(incoming())
+          && incoming().orgId == orgId
+          && isOrgMember(orgId)
+          && incoming().createdAt == request.time;
+        allow update: if isValidId(orgId) && isValidId(notifId) && isVerified()
+          && isValidNotification(incoming())
+          && isOrgMember(orgId)
+          && incoming().orgId == existing().orgId
+          && incoming().createdAt == existing().createdAt
+          && incoming().diff(existing()).affectedKeys().hasOnly(['read']);
+        allow delete: if isValidId(orgId) && isValidId(notifId) && isVerified()
+          && (isOrgAdminOrOwner(orgId) || isPlatformAdmin());
+      }
+
+      match /auditLogs/{logId} {
+        allow get: if isValidId(orgId) && isValidId(logId) && (isOrgMember(orgId) || isPlatformAdmin());
+        allow list: if isValidId(orgId) && isSignedIn() && (request.auth.uid in existing().memberUids || isBootstrappedAdmin());
+        allow create: if isValidId(orgId) && isValidId(logId) && isVerified()
+          && isValidAuditLog(incoming())
+          && incoming().orgId == orgId
+          && incoming().actorId == request.auth.uid
+          && existsAfter(/databases/$(database)/documents/organizations/$(orgId)/members/$(request.auth.uid))
+          && incoming().createdAt == request.time;
+        allow update: if false;
+        allow delete: if isValidId(orgId) && isValidId(logId) && isVerified()
+          && (isOrgOwner(orgId) || isPlatformAdmin());
+      }
+    }
+  }
+}
